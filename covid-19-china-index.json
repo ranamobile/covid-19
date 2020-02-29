@@ -1,0 +1,18 @@
+{
+    "settings" : {
+        "number_of_shards" : 1
+    },
+    "mappings" : {
+        "properties" : {
+            "timestamp": { "type": "date" },
+            "geoname": { "type": "keyword" },
+            "location": { "type": "geo_point" },
+            "population": { "type": "integer" },
+            "daily_confirm": { "type": "integer" },
+            "daily_suspect": { "type": "integer" },
+            "daily_death": { "type": "integer" },
+            "total_confirm": { "type": "integer" },
+            "total_death": { "type": "integer" }
+        }
+    }
+}

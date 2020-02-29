@@ -1,0 +1,23 @@
+{
+    "settings" : {
+        "number_of_shards" : 1
+    },
+    "mappings" : {
+        "properties" : {
+            "timestamp": { "type": "date" },
+            "location": { "type": "keyword" },
+            "total_confirm": { "type": "integer" },
+            "daily_confirm": { "type": "integer" },
+            "total_china_expose": { "type": "integer" },
+            "daily_china_expose": { "type": "integer" },
+            "total_world_expose": { "type": "integer" },
+            "daily_world_expose": { "type": "integer" },
+            "total_cntry_expose": { "type": "integer" },
+            "daily_cntry_expose": { "type": "integer" },
+            "total_unknw_expose": { "type": "integer" },
+            "daily_unknw_expose": { "type": "integer" },
+            "total_death": { "type": "integer" },
+            "daily_death": { "type": "integer" }
+        }
+    }
+}
