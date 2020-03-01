@@ -1,0 +1,13 @@
+{
+    "settings" : {
+        "number_of_shards" : 1
+    },
+    "mappings" : {
+        "properties" : {
+            "timestamp": { "type": "date" },
+            "geoname": { "type": "keyword" },
+            "location": { "type": "geo_point" },
+            "total_confirm": { "type": "integer" }
+        }
+    }
+}

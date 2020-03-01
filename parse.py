@@ -8,43 +8,29 @@ import re
 import PyPDF2
 import requests
 from elasticsearch import Elasticsearch
+from elasticsearch.client.security import SecurityClient
+from elasticsearch.helpers import bulk
 from geopy.geocoders import Nominatim
+
+from config import parsers
 
 logger = logging.getLogger(__name__)
 
+
 class CovidParser:
-    INDEX_CHINA = "covid-19-china"
-    INDEX_WORLD = "covid-19-world"
-    HEADERS_CHINA = [
-        "timestamp", "location", "geoname", "population",
-        "daily_confirm", "daily_suspect", "daily_death", "total_confirm", "total_death",
-    ]
-    HEADERS_WORLD = [
-        "timestamp", "location", "geoname",
-        "total_confirm", "daily_confirm",
-        "total_china_expose", "daily_china_expose", "total_world_expose", "daily_world_expose",
-        "total_cntry_expose", "daily_cntry_expose", "total_unknw_expose", "daily_unknw_expose",
-        "total_death", "daily_death",
-    ]
-    REGEX_CHINA = r'([A-Z][a-z ]+) (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)'
-    REGEX_WORLD = (r'([A-Z][a-z ]+) (\d+) \((\d+)\) (\d+) \((\d+)\) (\d+) \((\d+)\) '
-                   r'(\d+) \((\d+)\) (\d+) \((\d+)\) (\d+) \((\d+)\)')
+    COVID_INDEX = "covid-19"
 
     def __init__(self, es_url="http://localhost:9200"):
         self.es = Elasticsearch(es_url)
-        self.geo = Nominatim(user_agent="my-application")
+        self.geo = Nominatim(user_agent="my-application-1")
         self.geolocations = {}
 
     def _initialize_index(self, index, clear=False):
         if clear and self.es.indices.exists(index=index):
             self.es.indices.delete(index=index)
-        with open(f'{index}-index.json', "r") as handler:
+        with open(f'{self.COVID_INDEX}-index.json', "r") as handler:
             body = json.load(handler)
             self.es.indices.create(index=index, body=body)
-
-    def initialize_elasticsearch(self, clear=False):
-        self._initialize_index(self.INDEX_CHINA, clear=clear)
-        self._initialize_index(self.INDEX_WORLD, clear=clear)
 
     def get_pdf_content(self, filepath):
         with open(filepath, "rb") as handler:
@@ -61,34 +47,56 @@ class CovidParser:
         content = " ".join(page_content)
         return content
 
-    def _parse_covid(self, content, date, index, headers, regex):
-        filepath = os.path.join("output", f'{date}-{index}.tsv')
-        if os.path.isfile(filepath):
+    def _parse_covid(self, content, date, filename, headers, regex, force=False):
+        filepath = os.path.join("output", f'{filename}.tsv')
+        documents = []
+
+        if os.path.isfile(filepath) and not force:
             with open(filepath, "r") as handler:
                 reader = csv.DictReader(handler, delimiter="\t")
-                for stat in reader:
+                for count, stat in enumerate(reader):
                     stat = dict(stat)
                     stat["timestamp"] = datetime.datetime.fromisoformat(stat["timestamp"])
                     stat["location"] = stat["location"] or None
-                    self.es.index(index=index, body=stat)
                     self.geolocations[stat["geoname"]] = stat["location"]
+
+                    stat["_type"] = "_doc"
+                    stat["_op_type"] = "index"
+                    documents.append(stat)
+
         else:
             with open(filepath, "w") as handler:
                 writer = csv.DictWriter(handler, fieldnames=headers, delimiter="\t")
                 writer.writeheader()
-                for match in re.findall(regex, content):
+                for count, match in enumerate(re.findall(regex, content)):
                     if match[0] in self.geolocations:
                         geopoint = self.geolocations[match[0]]
                     else:
                         loc = self.geo.geocode(match[0])
                         geopoint = f'{loc.latitude},{loc.longitude}' if loc else None
+                        self.geolocations[match[0]] = geopoint
                     stat = dict(zip(headers, [date, geopoint] + list(match)))
-                    self.es.index(index=index, body=stat)
                     writer.writerow(stat)
 
+                    stat["_type"] = "_doc"
+                    stat["_op_type"] = "index"
+                    documents.append(stat)
+
+        return documents
+
     def parse_covid(self, content, date):
-        self._parse_covid(content, date, self.INDEX_CHINA, self.HEADERS_CHINA, self.REGEX_CHINA)
-        self._parse_covid(content, date, self.INDEX_WORLD, self.HEADERS_WORLD, self.REGEX_WORLD)
+        covid_index = f'{self.COVID_INDEX}-{date.strftime("%Y%m%d")}'
+        self._initialize_index(covid_index, clear=True)
+
+        documents = []
+        for parser in parsers:
+            headers = parser["headers"]
+            regex = parser["regex"]
+            filename = f'{covid_index}-{parser["label"]}'
+            documents.extend(self._parse_covid(content, date, filename, headers, regex))
+
+        logger.info(f'{covid_index}: found {len(documents)} documents for {date}')
+        bulk(self.es, documents, index=covid_index)
 
 
 WHO_URL = "https://www.who.int"
@@ -101,7 +109,6 @@ def get_reports():
         with open(filepath, "r") as handler:
             content = handler.read()
     else:
-
         response = requests.get(WHO_COVID_URL)
         if response.status_code == 200:
             content = response.text
@@ -120,8 +127,8 @@ def get_reports():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     parser = CovidParser()
-    parser.initialize_elasticsearch(clear=True)
 
     for pdf_name, pdf_filepath in get_reports():
         logger.info(f'parsing pdf: {pdf_name}')

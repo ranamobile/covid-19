@@ -17,15 +17,17 @@ services:
         hard: -1
     volumes:
       - es-data:/usr/share/elasticsearch/data
+      - ./es-config:/usr/share/elasticsearch/config
     ports:
       - 9200:9200
 
   kibana:
     image: docker.elastic.co/kibana/kibana-oss:7.6.0
     container_name: kibana
+    volumes:
+      - ./kb-config:/usr/share/kibana/config
     ports:
       - 5601:5601
-
 
 volumes:
   es-data:
